@@ -9,18 +9,28 @@ pub struct Crdt {
 
 struct Op {
   id : Id
+  lamport : Int
   content : OpContent
 } derive(Show, Eq, ToJson, FromJson)
+
+fn idlp(self : Op) -> IdLp {
+  IdLp::{ lamport: self.lamport, peer: self.id.peer }
+}
 
 enum OpContent {
   Insert(~origin_left : Id?, ~value : Char)
   Delete(Id)
 } derive(Show, Eq, ToJson, FromJson)
 
-pub struct Id {
+pub struct IdLp {
   lamport : Int
   peer : Int64
 } derive(Show, Eq, Compare, ToJson, FromJson, Hash)
+
+pub struct Id {
+  peer : Int64
+  counter : Int
+} derive(Show, Eq, ToJson, Compare, FromJson, Hash)
 
 pub fn Crdt::new(peer : Int64) -> Crdt {
   Crdt::{
@@ -39,13 +49,13 @@ pub fn export_from(self : Crdt, vv : Map[Int64, Int]) -> Json {
     if p_ops.is_empty() {
       continue
     }
-    let lamport_start = vv.get(p).or_default()
-    if lamport_start >= p_ops.last().unwrap().id.lamport {
+    let counter_start = vv.get(p).or_default()
+    if counter_start >= p_ops.length() {
       continue
     }
     for i = p_ops.length() - 1; i >= 0; i = i - 1 {
       let op = p_ops[i]
-      if op.id.lamport < lamport_start {
+      if op.id.counter < counter_start {
         break
       }
       ops.push(op)
@@ -70,11 +80,11 @@ fn max[T : Compare](a : T, b : T) -> T {
 /// We assume all ops are either appliable or applied.
 pub fn apply(self : Crdt, json : Json) -> Unit!Error {
   let ops : Array[Op] = @json.from_json!(json)
-  ops.sort_by_key(fn(x) { x.id.lamport })
+  ops.sort_by_key(fn(x) { x.lamport })
   for op in ops {
     let id = op.id
     match self.ops.get(id.peer) {
-      Some(x) => if x.last().unwrap().id.lamport >= id.lamport { continue }
+      Some(x) => if x.length() > id.counter { continue }
       None => ()
     }
     self.apply_op(op)
@@ -83,7 +93,7 @@ pub fn apply(self : Crdt, json : Json) -> Unit!Error {
 
 fn apply_op(self : Crdt, op : Op) -> Unit {
   let id = op.id
-  self.next_lamport = max(self.next_lamport, id.lamport + 1)
+  self.next_lamport = max(self.next_lamport, op.lamport + 1)
   self.ops.get_or_init(id.peer, fn() { Array::new() }).push(op)
   match op.content {
     Insert(~origin_left, ..) => {
@@ -100,7 +110,7 @@ fn apply_op(self : Crdt, op : Op) -> Unit {
       }
       let mut i = left_index + 1
       while i < self.state.length() {
-        if op.id > self.state[i].id {
+        if op.idlp() > self.state[i].idlp() {
           break
         }
         i = i + 1
@@ -137,8 +147,10 @@ pub fn insert(self : Crdt, pos : Int, c : Char) -> Unit!OutOfRange {
   let index = self.get_pos_index(pos)
   let lamport = self.next_lamport
   self.next_lamport += 1
+  let counter = self.ops.get_or_init(self.peer, fn() { Array::new() }).length()
   let op = Op::{
-    id: Id::{ lamport, peer: self.peer },
+    id: Id::{ counter, peer: self.peer },
+    lamport,
     content: OpContent::Insert(
       origin_left=self.state.get(index - 1).map(fn(op) { op.id }),
       value=c,
@@ -158,11 +170,15 @@ pub fn delete(self : Crdt, pos : Int, ~len : Int = 1) -> Unit!OutOfRange {
     let lamport = self.next_lamport
     self.next_lamport += 1
     let op = self.state[index]
+    let counter = self.ops
+      .get_or_init(self.peer, fn() { Array::new() })
+      .length()
     self.deleted_by
     .get_or_init(op.id, fn() { @sorted_set.new() })
-    .add(Id::{ lamport, peer: self.peer })
+    .add(Id::{ counter, peer: self.peer })
     let delete_op = Op::{
-      id: Id::{ lamport, peer: self.peer },
+      id: Id::{ counter, peer: self.peer },
+      lamport,
       content: OpContent::Delete(op.id),
     }
     self.ops.get_or_init(self.peer, fn() { Array::new() }).push(delete_op)
@@ -209,7 +225,7 @@ pub fn to_string(self : Crdt) -> String {
 pub fn version(self : Crdt) -> Map[Int64, Int] {
   let ans = Map::new()
   for p, ops in self.ops {
-    ans.set(p, ops.last().unwrap().id.lamport + 1)
+    ans.set(p, ops.length())
   }
   ans
 }

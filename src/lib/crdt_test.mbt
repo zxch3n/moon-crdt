@@ -14,8 +14,8 @@ test "basic insert delete" {
 }
 
 test "id ord" {
-  let id0 = @lib.Id::{ lamport: 2, peer: 0 }
-  let id1 = @lib.Id::{ lamport: 0, peer: 2 }
+  let id0 = @lib.IdLp::{ lamport: 2, peer: 0 }
+  let id1 = @lib.IdLp::{ lamport: 0, peer: 2 }
   assert_true!(id0 > id1)
 }
 
@@ -38,7 +38,7 @@ test "merge" {
   inspect!(b.to_string(), content="WorldHello45")
 }
 
-test "merge" {
+test "merge 1" {
   let a = @lib.Crdt::new(0)
   let b = @lib.Crdt::new(1)
   let c = @lib.Crdt::new(2)
@@ -57,4 +57,112 @@ test "merge" {
   inspect!(c.to_string(), content="123")
   b.merge!(c)
   inspect!(c.to_string(), content="123")
+}
+
+test "merge 2" {
+  let a = @lib.Crdt::new(0)
+  let b = @lib.Crdt::new(1)
+  let c = @lib.Crdt::new(2)
+
+  // Initial inserts
+  a.insert_str!(0, "Hello")
+  b.insert_str!(0, "World")
+  c.insert_str!(0, "CRDT")
+
+  // First round of merges
+  a.merge!(b)
+  b.merge!(c)
+  c.merge!(a)
+  assert_eq!(a.to_string(), "CRDTWorldHello")
+  assert_eq!(b.to_string(), "CRDTWorldHello")
+  assert_eq!(c.to_string(), "CRDTWorldHello")
+
+  // Concurrent edits
+  a.delete!(0, len=2) // Delete "CR"
+  b.insert_str!(4, " Sync ") // Insert " Sync" after "CRDT"
+  c.delete!(9, len=5) // Delete "Hello"
+
+  // Second round of merges
+  a.merge!(b)
+  b.merge!(c)
+  c.merge!(a)
+  let expected = "DT Sync World"
+  assert_eq!(a.to_string(), expected)
+  assert_eq!(b.to_string(), expected)
+  assert_eq!(c.to_string(), expected)
+
+  // More concurrent edits
+  a.insert_str!(0, "Complex ")
+  b.delete!(3, len=5) // Delete " Sync"
+  c.insert_str!(c.length(), "!")
+
+  // Final round of merges
+  a.merge!(b)
+  b.merge!(c)
+  c.merge!(a)
+  let final_expected = "Complex DT World!"
+  assert_eq!(a.to_string(), final_expected)
+  assert_eq!(b.to_string(), final_expected)
+  assert_eq!(c.to_string(), final_expected)
+}
+
+test "complex sync scenario" {
+  let a = @lib.Crdt::new(0)
+  let b = @lib.Crdt::new(1)
+  let c = @lib.Crdt::new(2)
+
+  // Initial insertions
+  a.insert_str!(0, "Hello")
+  b.insert_str!(0, "World")
+  c.insert_str!(0, "CRDT")
+
+  // Partial sync
+  a.merge!(b)
+  b.merge!(c)
+
+  // More modifications
+  a.insert_str!(5, " there")
+  inspect!(b.to_string(), content="CRDTWorldHello")
+  b.delete!(0, len=3)
+  inspect!(b.to_string(), content="TWorldHello")
+  c.insert_str!(2, "awesome ")
+
+  // Another partial sync
+  a.merge!(c)
+  b.merge!(a)
+
+  // Final modifications
+  inspect!(a.to_string(), content="awesome TWorld thereHello")
+  a.delete!(6, len=5)
+  inspect!(a.to_string(), content="awesomrld thereHello")
+  b.insert_str!(b.length(), "!")
+  c.insert_str!(0, "An ")
+
+  // Final sync
+  a.merge!(b)
+  b.merge!(c)
+  c.merge!(a)
+
+  // Assertions
+  inspect!(a.to_string(), content="An awesomrld thereHello!")
+  inspect!(b.to_string(), content="An awesomrld thereHello!")
+  inspect!(c.to_string(), content="An awesomrld thereHello!")
+  assert_eq!(a.to_string(), "An awesomrld thereHello!")
+  assert_eq!(b.to_string(), "An awesomrld thereHello!")
+  assert_eq!(c.to_string(), "An awesomrld thereHello!")
+  assert_eq!(a.length(), "An awesomrld thereHello!".length())
+  assert_eq!(b.length(), "An awesomrld thereHello!".length())
+  assert_eq!(c.length(), "An awesomrld thereHello!".length())
+}
+
+test "need pending" {
+  let a = @lib.Crdt::new(0)
+  let b = @lib.Crdt::new(1)
+  a.insert_str!(0, "123")
+  b.insert_str!(0, "abc")
+  b.apply!(a.export_from({ 0: 1 }))
+  b.apply!(a.export_from({ 0: 0 }))
+  a.apply!(b.export_from({}))
+  assert_eq!(a.to_string(), "abc123")
+  assert_eq!(b.to_string(), "abc123")
 }
