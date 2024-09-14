@@ -4,6 +4,7 @@ pub struct Crdt {
   ops : Map[Int64, Array[Op]]
   state : Array[Op]
   deleted_by : Map[Id, @sorted_set.T[Id]]
+  pending : Map[Id, Array[Op]]
   mut len : Int
 }
 
@@ -39,6 +40,7 @@ pub fn Crdt::new(peer : Int64) -> Crdt {
     ops: Map::new(),
     state: Array::new(),
     deleted_by: Map::new(),
+    pending: Map::new(),
     len: 0,
   }
 }
@@ -91,10 +93,48 @@ pub fn apply(self : Crdt, json : Json) -> Unit!Error {
   }
 }
 
+fn get_dep_of_op(op : Op) -> Id? {
+  match op.content {
+    Insert(~origin_left, ..) => origin_left
+    Delete(id) => Some(id)
+  }
+}
+
+fn include_id(self : Crdt, id : Id) -> Bool {
+  self.ops.get(id.peer).map(fn(ops) { ops.length() > id.counter }).or(false)
+}
+
+fn check_whether_all_deps_met(self : Crdt, op : Op) -> Bool {
+  let id = op.id
+  if id.counter != 0 {
+    if not(self.include_id({ peer: id.peer, counter: id.counter - 1 })) {
+      self.pending
+      .get_or_init(
+        { peer: id.peer, counter: id.counter - 1 },
+        fn() { Array::new() },
+      )
+      .push(op)
+      return false
+    }
+  }
+  match get_dep_of_op(op) {
+    Some(dep) =>
+      if not(self.include_id(dep)) {
+        self.pending.get_or_init(dep, fn() { Array::new() }).push(op)
+        return false
+      }
+    None => ()
+  }
+  true
+}
+
 fn apply_op(self : Crdt, op : Op) -> Unit {
   let id = op.id
-  self.next_lamport = max(self.next_lamport, op.lamport + 1)
+  if not(self.check_whether_all_deps_met(op)) {
+    return
+  }
   self.ops.get_or_init(id.peer, fn() { Array::new() }).push(op)
+  self.next_lamport = max(self.next_lamport, op.lamport + 1)
   match op.content {
     Insert(~origin_left, ..) => {
       let mut left_index = -1
@@ -125,6 +165,15 @@ fn apply_op(self : Crdt, op : Op) -> Unit {
       }
       set.add(op.id)
     }
+  }
+  match self.pending.get(id) {
+    Some(ops) => {
+      self.pending.remove(id)
+      for op in ops {
+        self.apply_op(op)
+      }
+    }
+    None => ()
   }
 }
 
