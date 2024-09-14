@@ -84,11 +84,6 @@ pub fn apply(self : Crdt, json : Json) -> Unit!Error {
   let ops : Array[Op] = @json.from_json!(json)
   ops.sort_by_key(fn(x) { x.lamport })
   for op in ops {
-    let id = op.id
-    match self.ops.get(id.peer) {
-      Some(x) => if x.length() > id.counter { continue }
-      None => ()
-    }
     self.apply_op(op)
   }
 }
@@ -130,6 +125,9 @@ fn check_whether_all_deps_met(self : Crdt, op : Op) -> Bool {
 
 fn apply_op(self : Crdt, op : Op) -> Unit {
   let id = op.id
+  if self.include_id(id) {
+    return
+  }
   if not(self.check_whether_all_deps_met(op)) {
     return
   }
@@ -222,22 +220,18 @@ pub fn delete(self : Crdt, pos : Int, ~len : Int = 1) -> Unit!OutOfRange {
     let counter = self.ops
       .get_or_init(self.peer, fn() { Array::new() })
       .length()
-    self.deleted_by
-    .get_or_init(op.id, fn() { @sorted_set.new() })
-    .add(Id::{ counter, peer: self.peer })
     let delete_op = Op::{
       id: Id::{ counter, peer: self.peer },
       lamport,
       content: OpContent::Delete(op.id),
     }
-    self.ops.get_or_init(self.peer, fn() { Array::new() }).push(delete_op)
+    self.apply_op(delete_op)
     index += 1
     while index < self.state.length() &&
           self.deleted_by.contains(self.state[index].id) {
       index += 1
     }
   }
-  self.len -= len
   ()
 }
 

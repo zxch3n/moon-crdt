@@ -166,3 +166,65 @@ test "need pending" {
   assert_eq!(a.to_string(), "abc123")
   assert_eq!(b.to_string(), "abc123")
 }
+
+test "random ops" {
+  let rand = @random.Rand::new()
+  let num_peers = 5
+  let num_ops = 1000
+  let crdts = Array::new()
+  for i = 0; i < num_peers; i = i + 1 {
+    crdts.push(@lib.Crdt::new(i.to_int64()))
+  }
+  for k = 0; k < num_ops; k = k + 1 {
+    let peer_index = rand.int(limit=num_peers)
+    let crdt = crdts[peer_index]
+    let op_type = rand.int(limit=3)
+    match op_type {
+      0 => {
+        // Insert
+        let pos = rand.int(limit=crdt.length() + 1)
+        let char = Char::from_int(rand.int(limit=26) + 'a'.to_int())
+        crdt.insert!(pos, char)
+      }
+      1 =>
+        // Delete
+        if crdt.length() > 0 {
+          let pos = rand.int(limit=crdt.length())
+          let len = rand.int(limit=min(5, crdt.length() - pos)) + 1
+          crdt.delete!(pos, ~len)
+        }
+      2 => {
+        // Merge
+        let other_index = rand.int(limit=num_peers)
+        if other_index != peer_index {
+          crdt.merge!(crdts[other_index])
+        }
+      }
+      _ => abort("Unexpected op type")
+    }
+  }
+
+  // Final merge
+  for i = 1; i < num_peers; i = i + 1 {
+    crdts[0].merge!(crdts[i])
+  }
+  for i = 1; i < num_peers; i = i + 1 {
+    crdts[0].merge!(crdts[i])
+  }
+
+  // Assert all CRDTs have the same content
+  let final_content = crdts[0].to_string()
+  let final_length = crdts[0].length()
+  for crdt in crdts {
+    assert_eq!(crdt.to_string(), final_content)
+    assert_eq!(crdt.length(), final_length)
+  }
+}
+
+fn min[T : Compare](a : T, b : T) -> T {
+  if a < b {
+    a
+  } else {
+    b
+  }
+}
