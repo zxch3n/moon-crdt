@@ -1,5 +1,5 @@
 test "basic insert delete" {
-  let crdt = @lib.Crdt::new(0)
+  let crdt = @rga.Crdt::new(0)
   crdt.insert_str!(0, "hello")
   inspect!(crdt.to_string(), content="hello")
   crdt.delete!(1)
@@ -14,14 +14,14 @@ test "basic insert delete" {
 }
 
 test "id ord" {
-  let id0 = @lib.IdLp::{ lamport: 2, peer: 0 }
-  let id1 = @lib.IdLp::{ lamport: 0, peer: 2 }
+  let id0 = @rga.IdLp::{ lamport: 2, peer: 0 }
+  let id1 = @rga.IdLp::{ lamport: 0, peer: 2 }
   assert_true!(id0 > id1)
 }
 
 test "merge" {
-  let a = @lib.Crdt::new(0)
-  let b = @lib.Crdt::new(1)
+  let a = @rga.Crdt::new(0)
+  let b = @rga.Crdt::new(1)
   a.insert_str!(0, "12345")
   a.merge!(b)
   assert_eq!(a.to_string(), b.to_string())
@@ -39,9 +39,9 @@ test "merge" {
 }
 
 test "merge 1" {
-  let a = @lib.Crdt::new(0)
-  let b = @lib.Crdt::new(1)
-  let c = @lib.Crdt::new(2)
+  let a = @rga.Crdt::new(0)
+  let b = @rga.Crdt::new(1)
+  let c = @rga.Crdt::new(2)
   a.insert_str!(0, "123")
   b.insert_str!(0, "abc")
   c.insert_str!(0, "xy")
@@ -60,9 +60,9 @@ test "merge 1" {
 }
 
 test "merge 2" {
-  let a = @lib.Crdt::new(0)
-  let b = @lib.Crdt::new(1)
-  let c = @lib.Crdt::new(2)
+  let a = @rga.Crdt::new(0)
+  let b = @rga.Crdt::new(1)
+  let c = @rga.Crdt::new(2)
 
   // Initial inserts
   a.insert_str!(0, "Hello")
@@ -107,9 +107,9 @@ test "merge 2" {
 }
 
 test "complex sync scenario" {
-  let a = @lib.Crdt::new(0)
-  let b = @lib.Crdt::new(1)
-  let c = @lib.Crdt::new(2)
+  let a = @rga.Crdt::new(0)
+  let b = @rga.Crdt::new(1)
+  let c = @rga.Crdt::new(2)
 
   // Initial insertions
   a.insert_str!(0, "Hello")
@@ -156,8 +156,8 @@ test "complex sync scenario" {
 }
 
 test "need pending" {
-  let a = @lib.Crdt::new(0)
-  let b = @lib.Crdt::new(1)
+  let a = @rga.Crdt::new(0)
+  let b = @rga.Crdt::new(1)
   a.insert_str!(0, "123")
   b.insert_str!(0, "abc")
   b.apply!(a.export_from({ 0: 1 }))
@@ -173,7 +173,7 @@ test "random ops" {
   let num_ops = 1000
   let crdts = Array::new()
   for i = 0; i < num_peers; i = i + 1 {
-    crdts.push(@lib.Crdt::new(i.to_int64()))
+    crdts.push(@rga.Crdt::new(i.to_int64()))
   }
   for k = 0; k < num_ops; k = k + 1 {
     let peer_index = rand.int(limit=num_peers)
