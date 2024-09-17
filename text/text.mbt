@@ -26,8 +26,8 @@ pub struct TextRope {
   tree : @btree.BTree[Text]
 }
 
-pub fn new() -> TextRope {
-  TextRope::{ tree: @btree.new() }
+pub fn new(~max_child_num : Int = 12) -> TextRope {
+  TextRope::{ tree: @btree.new(~max_child_num) }
 }
 
 pub fn insert(self : TextRope, index : Int, text : String) -> Unit {
@@ -74,7 +74,7 @@ pub fn length(self : TextRope) -> Int {
 }
 
 test "complex rope insertions" {
-  let rope = new()
+  let rope = new(max_child_num=6)
   // Insert a long string that will be split multiple times
   let long_string = repeat("abcdefghijklmnopqrstuvwxyz", 10) // 260 characters
   rope.insert(0, long_string)
@@ -93,7 +93,6 @@ test "complex rope insertions" {
       #|  Leaf(len=15): [START, abcde, START]
       #|  Leaf(len=15): [fghij, START, klmno]
       #|  Leaf(len=255): [START, pqrst, START, uvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz]
-    ,
   )
   for i = 0; i < 10; i = i + 1 {
     rope.insert(10 * i % rope.length(), "START")

@@ -1,39 +1,16 @@
 pub struct BTree[V] {
   mut root : BTreeNode[V]
   mut len : Int
+  max_child_num : Int
 }
 
-let max_child_num : Int = 6
-
-enum BTreeNode[V] {
-  Leaf(Leaf[V])
-  Node(Node[V])
-}
-
-fn len[V](self : BTreeNode[V]) -> Int {
-  match self {
-    BTreeNode::Leaf(leaf) => leaf.len
-    BTreeNode::Node(node) => node.len
+// Update the `new` function to accept `max_child_num` as a parameter
+pub fn new[V](~max_child_num : Int = 12) -> BTree[V] {
+  BTree::{
+    root: BTreeNode::Leaf({ entries: [], parent: None, len: 0 }),
+    len: 0,
+    max_child_num,
   }
-}
-
-fn set_parent[V](self : BTreeNode[V], parent : BTreeNode[V]?) -> Unit {
-  match self {
-    BTreeNode::Leaf(leaf) => leaf.parent = parent
-    BTreeNode::Node(node) => node.parent = parent
-  }
-}
-
-struct Leaf[V] {
-  mut entries : Array[V]
-  mut parent : BTreeNode[V]?
-  mut len : Int
-}
-
-struct Node[V] {
-  mut children : Array[BTreeNode[V]]
-  mut parent : BTreeNode[V]?
-  mut len : Int
 }
 
 pub struct Cursor[V] {
@@ -50,31 +27,6 @@ pub fn output[V](self : Cursor[V], logger : Logger) -> Unit {
 
 pub fn len[V](self : BTree[V]) -> Int {
   self.len
-}
-
-pub fn new[V]() -> BTree[V] {
-  BTree::{
-    root: BTreeNode::Leaf({ entries: [], parent: None, len: 0 }),
-    len: 0,
-  }
-}
-
-fn check_node_integrity![V : @rle.Rle](node : BTreeNode[V]) -> Int {
-  match node {
-    BTreeNode::Leaf(leaf) => {
-      let calculated_len = sum(leaf.entries.iter().map(fn(e) { e.rle_len() }))
-      assert_eq!(calculated_len, leaf.len)
-      calculated_len
-    }
-    BTreeNode::Node(node) => {
-      let mut calculated_len = 0
-      for child in node.children {
-        calculated_len += check_node_integrity!(child)
-      }
-      assert_eq!(calculated_len, node.len)
-      calculated_len
-    }
-  }
 }
 
 pub fn check_integrity![V : @rle.Rle](self : BTree[V]) -> Unit!Error {
@@ -135,6 +87,10 @@ pub fn insert[V : @rle.Rle](self : BTree[V], index : Int, value : V) -> Unit {
     cursor.offset = 0
     current_index += 1
   }
+  // Ensure current_index is within bounds
+  if current_index > leaf.entries.length() {
+    current_index = leaf.entries.length()
+  }
   if cursor.offset > 0 {
     // Split the existing entry
     let existing_entry = leaf.entries[current_index]
@@ -153,9 +109,88 @@ pub fn insert[V : @rle.Rle](self : BTree[V], index : Int, value : V) -> Unit {
   self.len += to_insert.rle_len()
 
   // Handle leaf splitting if necessary
-  if leaf.entries.length() >= max_child_num {
+  if leaf.entries.length() >= self.max_child_num {
     let _ = cursor.path.pop()
     split_leaf(self, leaf, cursor.path)
+  }
+}
+
+pub fn iter[V](self : BTree[V]) -> Iter[V] {
+  Iter::new(
+    fn(yield) {
+      fn dfs(node : BTreeNode[V]) -> IterResult {
+        match node {
+          BTreeNode::Leaf(leaf) =>
+            for value in leaf.entries {
+              if yield(value) == IterEnd {
+                return IterEnd
+              }
+            }
+          BTreeNode::Node(inner_node) =>
+            for child in inner_node.children {
+              if dfs(child) == IterEnd {
+                return IterEnd
+              }
+            }
+        }
+        IterContinue
+      }
+
+      dfs(self.root)
+    },
+  )
+}
+
+pub fn output[V : Show](self : BTree[V], logger : Logger) -> Unit {
+  node_to_string(self.root, 0, logger)
+}
+
+enum BTreeNode[V] {
+  Leaf(Leaf[V])
+  Node(Node[V])
+}
+
+fn len[V](self : BTreeNode[V]) -> Int {
+  match self {
+    BTreeNode::Leaf(leaf) => leaf.len
+    BTreeNode::Node(node) => node.len
+  }
+}
+
+fn set_parent[V](self : BTreeNode[V], parent : BTreeNode[V]?) -> Unit {
+  match self {
+    BTreeNode::Leaf(leaf) => leaf.parent = parent
+    BTreeNode::Node(node) => node.parent = parent
+  }
+}
+
+struct Leaf[V] {
+  mut entries : Array[V]
+  mut parent : BTreeNode[V]?
+  mut len : Int
+}
+
+struct Node[V] {
+  mut children : Array[BTreeNode[V]]
+  mut parent : BTreeNode[V]?
+  mut len : Int
+}
+
+fn check_node_integrity![V : @rle.Rle](node : BTreeNode[V]) -> Int {
+  match node {
+    BTreeNode::Leaf(leaf) => {
+      let calculated_len = sum(leaf.entries.iter().map(fn(e) { e.rle_len() }))
+      assert_eq!(calculated_len, leaf.len)
+      calculated_len
+    }
+    BTreeNode::Node(node) => {
+      let mut calculated_len = 0
+      for child in node.children {
+        calculated_len += check_node_integrity!(child)
+      }
+      assert_eq!(calculated_len, node.len)
+      calculated_len
+    }
   }
 }
 
@@ -202,17 +237,18 @@ fn split_leaf[V : @rle.Rle](
   let mid = leaf.entries.length() / 2
   let (left, right) = leaf.entries.split_at(mid)
   leaf.entries = left
+  // Recalculate leaf.len after splitting
+  leaf.len = sum(leaf.entries.iter().map(fn(e) { e.rle_len() }))
   let right_leaf = Leaf::{
     entries: right,
     len: sum(right.iter().map(fn(e) { e.rle_len() })),
     parent: leaf.parent,
   }
-  leaf.len -= right_leaf.len
   match leaf.parent {
     Some(BTreeNode::Node(node)) => {
       let index = path[path.length() - 1].1
       node.children.insert(index + 1, BTreeNode::Leaf(right_leaf))
-      if node.children.length() >= max_child_num {
+      if node.children.length() >= tree.max_child_num {
         let _ = path.pop()
         split_node(tree, node, path)
       }
@@ -247,13 +283,14 @@ fn split_node[V](
   for child in right_node.children {
     child.set_parent(Some(BTreeNode::Node(right_node)))
   }
-  right_node.len = sum(right_node.children.iter().map(fn(e) { e.len() }))
+  // Recalculate node lengths
   node.len = sum(node.children.iter().map(fn(e) { e.len() }))
+  right_node.len = sum(right_node.children.iter().map(fn(e) { e.len() }))
   match node.parent {
     Some(BTreeNode::Node(parent_node)) => {
       let index = path[path.length() - 1].1
       parent_node.children.insert(index + 1, BTreeNode::Node(right_node))
-      if parent_node.children.length() >= max_child_num {
+      if parent_node.children.length() >= tree.max_child_num {
         let _ = path.pop()
         split_node(tree, parent_node, path)
       }
@@ -272,32 +309,6 @@ fn split_node[V](
   }
 }
 
-pub fn iter[V](self : BTree[V]) -> Iter[V] {
-  Iter::new(
-    fn(yield) {
-      fn dfs(node : BTreeNode[V]) -> IterResult {
-        match node {
-          BTreeNode::Leaf(leaf) =>
-            for value in leaf.entries {
-              if yield(value) == IterEnd {
-                return IterEnd
-              }
-            }
-          BTreeNode::Node(inner_node) =>
-            for child in inner_node.children {
-              if dfs(child) == IterEnd {
-                return IterEnd
-              }
-            }
-        }
-        IterContinue
-      }
-
-      dfs(self.root)
-    },
-  )
-}
-
 fn repeat(s : String, n : Int) -> String {
   let mut result = ""
   for i = 0; i < n; i = i + 1 {
@@ -306,30 +317,31 @@ fn repeat(s : String, n : Int) -> String {
   result
 }
 
-pub fn output[V : Show](self : BTree[V], logger : Logger) -> Unit {
-  logger.write_string(node_to_string(self.root, 0))
-}
-
-pub fn to_string[V : Show](self : BTree[V]) -> String {
-  node_to_string(self.root, 0)
-}
-
 fn indent(level : Int) -> String {
   repeat("  ", level)
 }
 
-fn node_to_string[V : Show](node : BTreeNode[V], level : Int) -> String {
+fn node_to_string[V : Show](
+  node : BTreeNode[V],
+  level : Int,
+  logger : Logger
+) -> Unit {
   match node {
     BTreeNode::Leaf(leaf) => {
       let entries = leaf.entries.map(fn(v) { v.to_string() }).join(", ")
-      indent(level) + "Leaf(len=\{leaf.len}): [" + entries + "]"
+      logger.write_string(indent(level))
+      logger.write_string("Leaf(len=")
+      logger.write_string(leaf.len.to_string())
+      logger.write_string("): [")
+      logger.write_string(entries)
+      logger.write_string("]")
     }
     BTreeNode::Node(inner_node) => {
-      let mut result = indent(level) + "Node(len=\{inner_node.len}):\n"
+      logger.write_string(indent(level) + "Node(len=\{inner_node.len}):")
       for child in inner_node.children {
-        result += node_to_string(child, level + 1) + "\n"
+        logger.write_string("\n")
+        node_to_string(child, level + 1, logger)
       }
-      result.trim_right("\n")
     }
   }
 }
