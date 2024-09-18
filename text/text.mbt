@@ -34,6 +34,10 @@ pub fn insert(self : TextRope, index : Int, text : String) -> Unit {
   self.tree.insert(index, Text::{ text, char_len: text.length() })
 }
 
+pub fn delete(self : TextRope, index : Int, len : Int) -> Unit {
+  self.tree.delete(index, len)
+}
+
 pub fn to_string(self : TextRope) -> String {
   let mut result = ""
   for text in self.tree.iter() {
@@ -93,6 +97,7 @@ test "complex rope insertions" {
       #|  Leaf(len=15): [START, abcde, START]
       #|  Leaf(len=15): [fghij, START, klmno]
       #|  Leaf(len=255): [START, pqrst, START, uvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz]
+    ,
   )
   for i = 0; i < 10; i = i + 1 {
     rope.insert(10 * i % rope.length(), "START")
@@ -218,4 +223,58 @@ test "complex rope insertions" {
 
   // Final length check
   assert_eq!(rope.to_string().length(), rope.length())
+}
+
+test "basic rope deletions" {
+  let rope = new()
+  rope.insert(0, "Hello, world!")
+  rope.delete(0, 7)
+  assert_eq!(rope.to_string(), "world!")
+  rope.delete(5, 1)
+  assert_eq!(rope.to_string(), "world")
+  rope.delete(1, 2)
+  assert_eq!(rope.to_string(), "wld")
+  rope.delete(1, 2)
+  assert_eq!(rope.to_string(), "w")
+  rope.delete(0, 1)
+  assert_eq!(rope.to_string(), "")
+}
+
+test "complex rope deletions" {
+  let rope = new(max_child_num=6)
+
+  // Insert a simple string
+  rope.insert(0, "Hello, world!")
+  assert_eq!(rope.to_string(), "Hello, world!")
+  assert_eq!(rope.length(), 13)
+
+  // Delete from the middle
+  rope.delete(5, 1)
+  assert_eq!(rope.to_string(), "Hello world!")
+  assert_eq!(rope.length(), 12)
+
+  // Delete from the beginning
+  rope.delete(0, 6)
+  assert_eq!(rope.to_string(), "world!")
+  assert_eq!(rope.length(), 6)
+
+  // Delete from the end
+  rope.delete(5, 1)
+  assert_eq!(rope.to_string(), "world")
+  assert_eq!(rope.length(), 5)
+
+  // Insert new content
+  rope.insert(3, "ABC")
+  assert_eq!(rope.to_string(), "worABCld")
+  assert_eq!(rope.length(), 8)
+
+  // Delete everything
+  rope.delete(0, rope.length())
+  assert_eq!(rope.to_string(), "")
+  assert_eq!(rope.length(), 0)
+
+  // Insert after complete deletion
+  rope.insert(0, "New content")
+  assert_eq!(rope.to_string(), "New content")
+  assert_eq!(rope.length(), 11)
 }

@@ -141,7 +141,10 @@ pub fn iter[V](self : BTree[V]) -> Iter[V] {
   )
 }
 
-pub fn output[V : Show](self : BTree[V], logger : Logger) -> Unit {
+pub impl[V : Show] Show for BTree[V] with output(
+  self : BTree[V],
+  logger : Logger
+) -> Unit {
   node_to_string(self.root, 0, logger)
 }
 
@@ -154,6 +157,13 @@ fn len[V](self : BTreeNode[V]) -> Int {
   match self {
     BTreeNode::Leaf(leaf) => leaf.len
     BTreeNode::Node(node) => node.len
+  }
+}
+
+fn child_num[V](self : BTreeNode[V]) -> Int {
+  match self {
+    BTreeNode::Leaf(_) => 0
+    BTreeNode::Node(node) => node.children.length()
   }
 }
 
@@ -342,6 +352,350 @@ fn node_to_string[V : Show](
         logger.write_string("\n")
         node_to_string(child, level + 1, logger)
       }
+    }
+  }
+}
+
+fn min(a : Int, b : Int) -> Int {
+  if a < b {
+    a
+  } else {
+    b
+  }
+}
+
+fn max(a : Int, b : Int) -> Int {
+  if a > b {
+    a
+  } else {
+    b
+  }
+}
+
+pub fn delete[V : Show + @rle.Rle](
+  self : BTree[V],
+  index : Int,
+  len : Int
+) -> Unit {
+  if index < 0 || index + len > self.len {
+    abort("index out of bounds. index: \{index}, len: \{self.len}")
+  }
+  let stack : Array[(BTreeNode[V], Int)] = []
+  let mut current_node = self.root
+  let mut current_index = 0
+  // Traverse to the leaf node containing the start of the range
+  while true {
+    match current_node {
+      BTreeNode::Leaf(leaf) => {
+        stack.push((current_node, 0))
+        break
+      }
+      BTreeNode::Node(node) => {
+        let mut child_index = 0
+        while child_index < node.children.length() - 1 &&
+              current_index + node.children[child_index].len() <= index {
+          current_index += node.children[child_index].len()
+          child_index += 1
+        }
+        stack.push((current_node, child_index))
+        current_node = node.children[child_index]
+      }
+    }
+  }
+  let mut remaining_len = len
+  while remaining_len > 0 && not(stack.is_empty()) {
+    let (current_node, child_index) = stack.pop().unwrap()
+    let mut current_node = current_node
+    match current_node {
+      BTreeNode::Leaf(leaf) => {
+        let mut current_leaf_index = 0
+        // Find the starting position in the leaf
+        while current_index + leaf.entries[current_leaf_index].rle_len() <=
+              index {
+          current_index += leaf.entries[current_leaf_index].rle_len()
+          current_leaf_index += 1
+        }
+
+        // Remove or split entries
+        while remaining_len > 0 && current_leaf_index < leaf.entries.length() {
+          let entry = leaf.entries[current_leaf_index]
+          if current_index >= index &&
+            current_index + entry.rle_len() <= index + remaining_len {
+            // Remove entire entry
+            ignore(leaf.entries.remove(current_leaf_index))
+            remaining_len -= entry.rle_len()
+            leaf.len -= entry.rle_len()
+            current_index += entry.rle_len()
+            // Do not increment current_leaf_index since entries have shifted
+          } else {
+            // Split entry
+            let delete_start = max(index, current_index)
+            let delete_end = min(
+              index + remaining_len,
+              current_index + entry.rle_len(),
+            )
+            let delete_len = delete_end - delete_start
+            if delete_start > current_index &&
+              delete_end < current_index + entry.rle_len() {
+              // Remove the middle part and insert a new leaf node
+              let left_len = delete_start - current_index
+              let right_len = current_index + entry.rle_len() - delete_end
+              let left_entry = entry.slice(0, left_len)
+              let right_entry = entry.slice(
+                entry.rle_len() - right_len,
+                entry.rle_len(),
+              )
+              guard let Ok(_) = assert_eq?(
+                entry.rle_len() - left_len - right_len,
+                delete_len,
+              )
+              leaf.entries[current_leaf_index] = left_entry
+              leaf.entries.insert(current_leaf_index + 1, right_entry)
+              leaf.len -= delete_len
+              current_leaf_index += 2
+              current_index += left_len + right_len
+            } else if delete_start > current_index {
+              let left_len = min(delete_start - current_index, entry.rle_len())
+              let actual_delete_len = entry.rle_len() - left_len
+              // println(
+              //   "\{delete_start} \{delete_end} \{delete_len} \{current_index} \{index} \{entry.rle_len()}",
+              // )
+              // println("\{left_len} \{actual_delete_len}")
+              guard let Ok(_) = assert_eq?(actual_delete_len, delete_len)
+              let left_entry = entry.slice(0, left_len)
+              leaf.entries[current_leaf_index] = left_entry
+              current_leaf_index += 1
+            } else if delete_end > current_index &&
+              delete_end < current_index + entry.rle_len() {
+              // Right part remains
+              let right_entry = entry.slice(
+                delete_end - current_index,
+                entry.rle_len(),
+              )
+              let actual_delete_len = delete_end - current_index
+              guard let Ok(_) = assert_eq?(actual_delete_len, delete_len)
+              leaf.entries[current_leaf_index] = right_entry
+              current_leaf_index += 1
+            } else {
+              ignore(leaf.entries.remove(current_leaf_index))
+              guard let Ok(_) = assert_eq?(entry.rle_len(), delete_len)
+
+            }
+            remaining_len -= delete_len
+            leaf.len -= delete_len
+            current_index += entry.rle_len() - delete_len
+          }
+        }
+
+        // Check if we need to delete the node
+        if leaf.entries.is_empty() {
+          let stack = stack.copy()
+          stack.push((current_node, child_index))
+          delete_node(self, stack)
+        }
+        if leaf.entries.length() >= self.max_child_num {
+          split_leaf(self, leaf, stack.copy())
+        }
+      }
+      BTreeNode::Node(node) =>
+        if child_index < node.children.length() - 1 {
+          stack.push((current_node, child_index + 1))
+          current_node = node.children[child_index + 1]
+          stack.push((current_node, 0))
+        }
+    }
+  }
+
+  // Update lengths
+  for node in stack {
+    match node.0 {
+      BTreeNode::Node(inner_node) => inner_node.len -= len
+      _ => ()
+    }
+  }
+  self.len -= len
+}
+
+fn delete_node[V : @rle.Rle](
+  self : BTree[V],
+  path : Array[(BTreeNode[V], Int)]
+) -> Unit {
+  if path.length() == 0 {
+    abort("delete empty path")
+  }
+  if path.length() == 1 {
+    guard let Ok(_) = assert_true?(physical_equal(path[0].0, self.root))
+    return
+  }
+  // Remove the node from its parent using the index from the path
+  let parent_index = path[path.length() - 1].1
+  match path[path.length() - 2].0 {
+    BTreeNode::Node(parent_node) => {
+      ignore(parent_node.children.remove(parent_index))
+      // Check if parent needs to handle lack
+      if parent_node.children.length() < self.max_child_num / 2 {
+        ignore(path.pop())
+        handle_lack(self, parent_node, path)
+      }
+    }
+    _ => abort("Parent is not a node")
+  }
+}
+
+fn handle_lack[V : @rle.Rle](
+  tree : BTree[V],
+  node : Node[V],
+  path : Array[(BTreeNode[V], Int)]
+) -> Unit {
+  let index = path[path.length() - 1].1
+  guard let BTreeNode::Node(parent) = path[path.length() - 1].0
+  if parent.children.length() <= 1 {
+    return
+  }
+  let threshold = tree.max_child_num / 2
+  // Try to borrow from left sibling
+  if index > 0 && parent.children[index - 1].child_num() > threshold {
+    borrow_from_sibling(tree, node, index - 1, true)
+    return
+  }
+
+  // Try to borrow from right sibling
+  if index < node.children.length() &&
+    node.children[index].child_num() > threshold {
+    borrow_from_sibling(tree, node, index, false)
+    return
+  }
+
+  // Merge with left sibling if possible
+  if index > 0 {
+    merge_with_sibling(tree, node, index - 1, true, path)
+    return
+  }
+  // Merge with right sibling
+  merge_with_sibling(tree, node, index, false, path)
+}
+
+fn borrow_from_sibling[V : @rle.Rle](
+  tree : BTree[V],
+  parent_node : Node[V],
+  sibling_index : Int,
+  is_left : Bool
+) -> Unit {
+  if is_left {
+    let sibling = parent_node.children[sibling_index]
+    let child = parent_node.children[sibling_index + 1]
+    match (sibling, child) {
+      (BTreeNode::Node(sibling_node), BTreeNode::Node(child_node)) => {
+        // Move the last child from sibling to child
+        let borrowed = sibling_node.children.pop().unwrap()
+        child_node.children.insert(0, borrowed)
+        borrowed.set_parent(Some(BTreeNode::Node(child_node)))
+        // Update lengths
+        sibling_node.len -= borrowed.len()
+        child_node.len += borrowed.len()
+      }
+      (BTreeNode::Leaf(sibling_leaf), BTreeNode::Leaf(child_leaf)) => {
+        // Move the last entry from sibling to child
+        let borrowed = sibling_leaf.entries.pop().unwrap()
+        child_leaf.entries.insert(0, borrowed)
+        // Update lengths
+        sibling_leaf.len -= borrowed.rle_len()
+        child_leaf.len += borrowed.rle_len()
+      }
+      _ => abort("Mismatched node types")
+    }
+  } else {
+    let sibling = parent_node.children[sibling_index + 1]
+    let child = parent_node.children[sibling_index]
+    match (sibling, child) {
+      (BTreeNode::Node(sibling_node), BTreeNode::Node(child_node)) => {
+        // Move the first child from sibling to child
+        let borrowed = sibling_node.children.remove(0)
+        child_node.children.push(borrowed)
+        borrowed.set_parent(Some(BTreeNode::Node(child_node)))
+        // Update lengths
+        sibling_node.len -= borrowed.len()
+        child_node.len += borrowed.len()
+      }
+      (BTreeNode::Leaf(sibling_leaf), BTreeNode::Leaf(child_leaf)) => {
+        // Move the first entry from sibling to child
+        let borrowed = sibling_leaf.entries.remove(0)
+        child_leaf.entries.push(borrowed)
+        // Update lengths
+        sibling_leaf.len -= borrowed.rle_len()
+        child_leaf.len += borrowed.rle_len()
+      }
+      _ => abort("Mismatched node types")
+    }
+  }
+}
+
+fn merge_with_sibling[V : @rle.Rle](
+  tree : BTree[V],
+  parent_node : Node[V],
+  sibling_index : Int,
+  is_left : Bool,
+  path : Array[(BTreeNode[V], Int)]
+) -> Unit {
+  if is_left {
+    let left = parent_node.children[sibling_index]
+    let right = parent_node.children[sibling_index + 1]
+    match (left, right) {
+      (BTreeNode::Node(left_node), BTreeNode::Node(right_node)) => {
+        // Merge right into left
+        left_node.children.append(right_node.children)
+        for child in right_node.children {
+          child.set_parent(Some(BTreeNode::Node(left_node)))
+        }
+        left_node.len += right_node.len
+      }
+      (BTreeNode::Leaf(left_leaf), BTreeNode::Leaf(right_leaf)) => {
+        // Merge right into left
+        left_leaf.entries.append(right_leaf.entries)
+        left_leaf.len += right_leaf.len
+      }
+      _ => abort("Mismatched node types")
+    }
+    ignore(parent_node.children.remove(sibling_index + 1))
+  } else {
+    let left = parent_node.children[sibling_index]
+    let right = parent_node.children[sibling_index + 1]
+    match (left, right) {
+      (BTreeNode::Node(left_node), BTreeNode::Node(right_node)) => {
+        // Merge left into right
+        let children = left_node.children.copy()
+        children.append(right_node.children)
+        right_node.children = children
+        for child in left_node.children {
+          child.set_parent(Some(BTreeNode::Node(right_node)))
+        }
+        right_node.len += left_node.len
+      }
+      (BTreeNode::Leaf(left_leaf), BTreeNode::Leaf(right_leaf)) => {
+        // Merge left into right
+        let entries = left_leaf.entries.copy()
+        entries.append(right_leaf.entries)
+        right_leaf.entries = entries
+        right_leaf.len += left_leaf.len
+      }
+      _ => abort("Mismatched node types")
+    }
+    ignore(parent_node.children.remove(sibling_index))
+  }
+  // After merging, check if parent needs to handle lack
+  if parent_node.children.length() < tree.max_child_num / 2 {
+    // Recursive call to handle lack on parent
+    match parent_node.parent {
+      Some(BTreeNode::Node(grandparent)) => {
+        let _ = path.pop()
+        handle_lack(tree, grandparent, path)
+      }
+      _ =>
+        if parent_node.children.length() == 1 {
+          // If the root node has only one child, make that child the new root
+          tree.root = parent_node.children[0]
+          tree.root.set_parent(None)
+        }
     }
   }
 }
