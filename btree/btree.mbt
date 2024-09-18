@@ -386,7 +386,7 @@ pub fn delete[V : Show + @rle.Rle](
   // Traverse to the leaf node containing the start of the range
   while true {
     match current_node {
-      BTreeNode::Leaf(leaf) => {
+      BTreeNode::Leaf(_leaf) => {
         stack.push((current_node, 0))
         break
       }
@@ -421,7 +421,7 @@ pub fn delete[V : Show + @rle.Rle](
           let entry = leaf.entries[current_leaf_index]
           if current_index >= index &&
             current_index + entry.rle_len() <= index + remaining_len {
-            // Remove entire entry
+            // Remove entire entry because it is fully covered by the delete range
             ignore(leaf.entries.remove(current_leaf_index))
             remaining_len -= entry.rle_len()
             leaf.len -= entry.rle_len()
@@ -430,10 +430,7 @@ pub fn delete[V : Show + @rle.Rle](
           } else {
             // Split entry
             let delete_start = max(index, current_index)
-            let delete_end = min(
-              index + remaining_len,
-              current_index + entry.rle_len(),
-            )
+            let delete_end = min(index + len, current_index + entry.rle_len())
             let delete_len = delete_end - delete_start
             if delete_start > current_index &&
               delete_end < current_index + entry.rle_len() {
@@ -445,8 +442,7 @@ pub fn delete[V : Show + @rle.Rle](
                 entry.rle_len() - right_len,
                 entry.rle_len(),
               )
-              guard let Ok(_) = assert_eq?(
-                entry.rle_len() - left_len - right_len,
+              let _ = @expect.expect(entry.rle_len() - left_len - right_len).to_be(
                 delete_len,
               )
               leaf.entries[current_leaf_index] = left_entry
@@ -473,12 +469,12 @@ pub fn delete[V : Show + @rle.Rle](
                 entry.rle_len(),
               )
               let actual_delete_len = delete_end - current_index
-              guard let Ok(_) = assert_eq?(actual_delete_len, delete_len)
+              let _ = @expect.expect(actual_delete_len).to_be(delete_len)
               leaf.entries[current_leaf_index] = right_entry
               current_leaf_index += 1
             } else {
               ignore(leaf.entries.remove(current_leaf_index))
-              guard let Ok(_) = assert_eq?(entry.rle_len(), delete_len)
+              let _ = @expect.expect(entry.rle_len()).to_be(delete_len)
 
             }
             remaining_len -= delete_len
@@ -576,7 +572,7 @@ fn handle_lack[V : @rle.Rle](
 }
 
 fn borrow_from_sibling[V : @rle.Rle](
-  tree : BTree[V],
+  _tree : BTree[V],
   parent_node : Node[V],
   sibling_index : Int,
   is_left : Bool

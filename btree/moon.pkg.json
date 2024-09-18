@@ -1,5 +1,7 @@
 {
-    "import": [
-        "zx/crdt/rle"
-    ]
+  "import": [
+    "zx/crdt/rle",
+    "zxch3n/expect",
+    "zxch3n/expect/lib"
+  ]
 }
