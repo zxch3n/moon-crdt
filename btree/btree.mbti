@@ -1,0 +1,43 @@
+package zx/crdt/btree
+
+alias @zx/crdt/rle as @rle
+
+// Values
+fn new[V](~max_child_num : Int = ..) -> BTree[V]
+
+// Types and methods
+pub struct BTree {
+  pub root : BTreeNode[V]
+  pub len : Int
+  pub max_child_num : Int
+}
+impl BTree {
+  check_integrity[V : @rle.Rle](Self[V]) -> Unit!
+  delete[V : Show + @rle.Rle](Self[V], Int, Int) -> Unit
+  insert[V : @rle.Rle](Self[V], Int, V) -> Unit
+  iter[V](Self[V]) -> Iter[V]
+  len[V](Self[V]) -> Int
+  query[V : @rle.Rle](Self[V], Int) -> Cursor[V]?
+}
+
+type BTreeNode
+
+pub struct Cursor {
+  pub path : Array[(BTreeNode[V], Int)]
+  pub offset : Int
+}
+impl Cursor {
+  output[V](Self[V], Logger) -> Unit
+}
+
+type Leaf
+
+type Node
+
+// Type aliases
+
+// Traits
+
+// Extension Methods
+impl Show for BTree
+

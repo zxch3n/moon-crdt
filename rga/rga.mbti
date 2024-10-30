@@ -1,0 +1,91 @@
+package zx/crdt/rga
+
+alias @moonbitlang/core/json as @json
+alias @moonbitlang/core/sorted_set as @sorted_set
+
+// Values
+
+// Types and methods
+pub type! ApplyError {
+  BrokenData
+}
+
+pub struct Crdt {
+  pub peer : Int64
+  pub next_lamport : Int
+  pub ops : Map[Int64, Array[Op]]
+  pub state : Array[Op]
+  pub deleted_by : Map[Id, @sorted_set.T[Id]]
+  pub pending : Map[Id, Array[Op]]
+  pub len : Int
+}
+impl Crdt {
+  apply(Self, Json) -> Unit!
+  delete(Self, Int, ~len : Int = ..) -> Unit!OutOfRange
+  export_from(Self, Map[Int64, Int]) -> Json
+  insert(Self, Int, Char) -> Unit!OutOfRange
+  insert_str(Self, Int, String) -> Unit!OutOfRange
+  length(Self) -> Int
+  merge(Self, Self) -> Unit!
+  new(Int64) -> Self
+  to_string(Self) -> String
+  version(Self) -> Map[Int64, Int]
+}
+
+pub struct Id {
+  pub peer : Int64
+  pub counter : Int
+}
+impl Id {
+  compare(Self, Self) -> Int
+  from_json(Json, @json.JsonPath) -> Self!@json.JsonDecodeError
+  hash_combine(Self, Hasher) -> Unit
+  op_equal(Self, Self) -> Bool
+  to_json(Self) -> Json
+  to_string(Self) -> String
+}
+
+pub struct IdLp {
+  pub lamport : Int
+  pub peer : Int64
+}
+impl IdLp {
+  compare(Self, Self) -> Int
+  from_json(Json, @json.JsonPath) -> Self!@json.JsonDecodeError
+  hash_combine(Self, Hasher) -> Unit
+  op_equal(Self, Self) -> Bool
+  to_json(Self) -> Json
+  to_string(Self) -> String
+}
+
+type Op
+impl Op {
+  from_json(Json, @json.JsonPath) -> Self!@json.JsonDecodeError
+  op_equal(Self, Self) -> Bool
+  to_json(Self) -> Json
+  to_string(Self) -> String
+}
+
+type OpContent
+impl OpContent {
+  from_json(Json, @json.JsonPath) -> Self!@json.JsonDecodeError
+  op_equal(Self, Self) -> Bool
+  to_json(Self) -> Json
+  to_string(Self) -> String
+}
+
+pub type! OutOfRange String
+
+// Type aliases
+
+// Traits
+
+// Extension Methods
+impl Show for Id
+
+impl Show for IdLp
+
+impl Show for Op
+
+impl Show for OpContent
+

@@ -1,0 +1,33 @@
+package zx/crdt/text
+
+alias @zx/crdt/btree as @btree
+
+// Values
+fn new(~max_child_num : Int = ..) -> TextRope
+
+// Types and methods
+pub struct Text {
+  pub text : String
+  pub char_len : Int
+}
+impl Text {
+  rle_len(Self) -> Int
+  slice(Self, Int, Int) -> Self
+}
+
+pub struct TextRope {
+  pub tree : @btree.BTree[Text]
+}
+impl TextRope {
+  delete(Self, Int, Int) -> Unit
+  insert(Self, Int, String) -> Unit
+  length(Self) -> Int
+  to_string(Self) -> String
+}
+
+// Type aliases
+
+// Traits
+
+// Extension Methods
+

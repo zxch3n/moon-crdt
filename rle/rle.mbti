@@ -1,0 +1,19 @@
+package zx/crdt/rle
+
+// Values
+fn split[V : Rle](V, Int) -> (V, V)
+
+// Types and methods
+
+// Type aliases
+
+// Traits
+pub trait Rle {
+  rle_len(Self) -> Int
+  can_merge(Self, Self) -> Bool
+  merge(Self, Self) -> Self
+  slice(Self, Int, Int) -> Self
+}
+
+// Extension Methods
+
